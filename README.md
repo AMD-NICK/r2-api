@@ -1,25 +1,29 @@
-A cloudflare worker based REST API for your R2 bucket.
+# API для CloudFlare R2
 
-Usage:
+Позволяет публично получать объекты через `GET /path`, либо заливать через `POST /path`.
+Оригинальный репозиторий: [proselog/r2-api](https://github.com/proselog/r2-api). Вырезан JWT токен, добавлена возможность загрузки по своему пути
 
-- Change the `bucket_name` and `preview_bucket_name` in `wrangler.toml` if you want.
-- Set `ENCRYPT_SECRET` (>= 32 chars) in the worker secrets using Wrangler CLI. (for production only)
+## wrangler.toml:
 
-Endpoints:
+В файле есть блок `env.development.*`, он применяется если делать `wrangler dev/publish --env development`
 
-- GET `/:key`: Public access
-- POST `/`: Require `authorization: Bearer TOKEN` header, where `TOKEN` is an encrypted JWT using `@proselog/jwt` and `ENCRYPT_SECRET`. The request content type should be `multipart/form-data` with following fields:
-  - `file`: `File` file to upload
+- `name` – создаст или обновит воркера с таким именем
+- `bucket_name` – имя бакета, с которым будет работать `wrangler publish`
+- `preview_bucket_name` – что и сверху но для `wrangler dev`
+- `ENCRYPT_SECRET` – условно "пароль", который надо указать в `Authorization` хедере для загрузки файлов
 
-The object key is generated from `$prefix/` + `uuid()` + `file.extension`
+Также нужно ввести `wrangler secret put ENCRYPT_SECRET`, чтобы после `publish` у воркера был env
 
-To generate a token using `@proselog/jwt`:
+## Быстрый старт
 
-```ts
-import { getDerivedKey, encrypt } from "@proselog/jwt"
+- `git clone` этого репозитория
+- `npm i` в скачанной папке для установки wrangler и зависимостей
+- `wrangler wrangler secret put ENCRYPT_SECRET` для установки пароля
+- отредактировать `wrangler.toml`, как написано выше
+- `wrangler dev` для проверки локально и `wrangler publish`, чтобы создать/обновить воркер
 
-const key = await getDerivedKey("ENCRYPT_SECRET")
-const token = await encrypt({ prefix: "dev/" }, key, { expiresIn: "1h" })
-```
+## Upload файла
 
-For development for you can `node gen-token.mjs` and use the output to upload files.
+`curl -X POST -H "Authorization: xxx" -F "file=@/path/to/file.ext" http://localhost:8787/`, где `xxx` это `ENCRYPT_SECRET`
+
+Если залить два файла по одному `/path`, то новый файл перезапишет старый

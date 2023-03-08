@@ -1,126 +1,103 @@
-import { decrypt, getDerivedKey } from "@proselog/jwt"
-
-const randomId = () => crypto.randomUUID()
-
-const getExtension = (path: string) => {
-  const lastPart = path.split(".").pop()
-  return lastPart ? `.${lastPart}` : ""
-}
-
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "*",
-  "Access-Control-Allow-Methods": "*",
+	"Access-Control-Allow-Origin":  "*",
+	"Access-Control-Allow-Headers": "*",
+	"Access-Control-Allow-Methods": "*",
 }
 
 const send = (data: string | Record<string, string>, init?: ResponseInit) => {
-  const isJSON = data && typeof data === "object"
-  return new Response(isJSON ? JSON.stringify(data) : data, {
-    ...init,
-    headers: {
-      ...init?.headers,
-      ...corsHeaders,
-      "content-type": isJSON ? "application/json" : "text/plain",
-    },
-  })
+	const isJSON = data && typeof data === "object"
+	return new Response(isJSON ? JSON.stringify(data) : data, {
+		...init,
+		headers: {
+			...init?.headers,
+			...corsHeaders,
+			"content-type": isJSON ? "application/json" : "text/plain",
+		},
+	})
 }
 
 const handler: ExportedHandler<{ BUCKET: R2Bucket; ENCRYPT_SECRET: string }> = {
-  async fetch(request, env, event): Promise<Response> {
-    try {
-      // Files are publicly accessible
-      if (request.method === "GET") {
-        const cache = caches.default
+	async fetch(request, env, event): Promise<Response> {
+		const url = new URL(request.url)
+		const object_key = url.pathname.substring(1)
 
-        const url = new URL(request.url)
+		try {
+			// Files are publicly accessible
+			if (request.method === "GET") {
+				if (url.pathname === "/") {
+					return send("hello world")
+				}
 
-        if (url.pathname === "/") {
-          return send("hello world")
-        }
+				const cache = caches.default
+				const cachedResponse = await cache.match(request)
 
-        const key = url.pathname.substring(1)
+				if (cachedResponse) {
+					console.log("cached!")
+					return cachedResponse
+				}
 
-        const cachedResponse = await cache.match(request)
+				const object = await env.BUCKET.get(object_key)
+				if (!object) {
+					return send("object not found", { status: 404 })
+				}
+				const response = new Response(object.body, {
+					headers: {
+						"Cache-Control": "public, max-age=31536000, immutable",
+					},
+				})
+				event.waitUntil(cache.put(request, response.clone()))
+				return response
+			}
 
-        if (cachedResponse) {
-          console.log("cached!")
-          return cachedResponse
-        }
+			if (request.method === "OPTIONS") {
+				return send("")
+			}
 
-        const object = await env.BUCKET.get(key)
-        if (!object) {
-          return send("object not found", { status: 404 })
-        }
-        const response = new Response(object.body, {
-          headers: {
-            "Cache-Control": "public, max-age=31536000, immutable",
-          },
-        })
-        event.waitUntil(cache.put(request, response.clone()))
-        return response
-      }
+			if (request.method === "POST") {
+				const token = request.headers
+					.get("authorization")
+					?.replace("Bearer ", "")
+					.trim()
 
-      if (request.method === "OPTIONS") {
-        return send("")
-      }
+				if (!token) {
+					throw new Error("missing auth token")
+				}
 
-      if (request.method === "POST") {
-        const token = request.headers
-          .get("authorization")
-          ?.replace("Bearer ", "")
-          .trim()
+				if (env.ENCRYPT_SECRET != token) {
+					console.error({ received_token: token })
+					return send("invalid token", {
+						status: 401,
+					})
+				}
 
-        if (!token) {
-          throw new Error("missing auth token")
-        }
+				const form_data = await request.formData()
+				const file = form_data.get("file") as File
 
-        let prefix: string | undefined
-        if (env.ENCRYPT_SECRET && token) {
-          const key = await getDerivedKey(env.ENCRYPT_SECRET)
-          try {
-            const payload = await decrypt(token, key)
-            prefix = payload.prefix as string
-          } catch (error) {
-            console.error({ error })
-            return send("invalid token", {
-              status: 401,
-            })
-          }
-        }
+				if (!file || !(file instanceof File)) {
+					throw new Error("missing file or invalid file")
+				}
 
-        if (prefix == null || typeof prefix !== "string") {
-          throw new Error("failed to extract prefix from token")
-        }
+				await env.BUCKET.put(object_key, await file.arrayBuffer(), {
+					httpMetadata: {
+						contentType: file.type,
+						// contentEncoding: "gzip",
+						// contentLanguage: "en",
+						// contentDisposition: "inline",
+						// cacheControl: "public, max-age=31536000, immutable",
+						// cacheExpiry: new Date(Date.now() + 10),
+					}
+				})
 
-        const data = await request.formData()
-        const id = randomId()
-        const file = data.get("file") as File
+				console.log("uploaded", file.type, object_key)
+				return send("OK")
+			}
+		} catch (error: any) {
+			console.error({ error })
+			return send(error.message, { status: 500 })
+		}
 
-        if (!file || !(file instanceof File)) {
-          throw new Error("missing file or invalid file")
-        }
-
-        const key = `${prefix}${id}${getExtension(file.name)}`
-
-        await env.BUCKET.put(key, await file.arrayBuffer(), {
-          httpMetadata: {
-            contentType: file.type,
-          },
-          customMetadata: {
-            // Store the original filename
-            filename: file.name,
-          },
-        })
-
-        return send({ key })
-      }
-    } catch (error: any) {
-      console.error({ error })
-      return send(error.message, { status: 500 })
-    }
-
-    return send("Hello World!")
-  },
+		return send("Hello World!")
+	},
 }
 
 export default handler
