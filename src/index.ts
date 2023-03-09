@@ -77,6 +77,9 @@ const handler: ExportedHandler<{ BUCKET: R2Bucket; ENCRYPT_SECRET: string }> = {
 					throw new Error("missing file or invalid file")
 				}
 
+				const meta_json = form_data.get("meta") as string
+				const meta = JSON.parse(meta_json)
+
 				await env.BUCKET.put(object_key, await file.arrayBuffer(), {
 					httpMetadata: {
 						contentType: file.type,
@@ -85,7 +88,12 @@ const handler: ExportedHandler<{ BUCKET: R2Bucket; ENCRYPT_SECRET: string }> = {
 						// contentDisposition: "inline",
 						// cacheControl: "public, max-age=31536000, immutable",
 						// cacheExpiry: new Date(Date.now() + 10),
-					}
+					},
+					customMetadata: {
+						// Store the original filename
+						filename: file.name,
+						...meta,
+					},
 				})
 
 				console.log("uploaded", file.type, object_key)

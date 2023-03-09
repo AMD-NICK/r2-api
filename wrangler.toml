@@ -1,11 +1,11 @@
-name = "r2"
+name = "cfr2bot"
 main = "src/index.ts"
 compatibility_date = "2022-05-14"
 
 [[r2_buckets]]
 binding = 'BUCKET'
-bucket_name = 'proselog'
-preview_bucket_name ='proselog-dev'
+bucket_name = 'cfr2bot'
+preview_bucket_name ='cfr2bot-dev'
 
 [env.development.vars]
 # should set a strong secret in production using wrangler CLI
@@ -14,5 +14,5 @@ ENCRYPT_SECRET="xxx"
 # Why do I need to set it again? Cloudflare?
 [[env.development.r2_buckets]]
 binding = 'BUCKET'
-bucket_name = 'proselog'
-preview_bucket_name ='proselog-dev'
+bucket_name = 'cfr2bot'
+preview_bucket_name ='cfr2bot-dev'
